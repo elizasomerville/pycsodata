@@ -178,7 +178,7 @@ cache = CSOCache()
 cache.flush()
 ```
 
-Read the full documentation [here](https://elizasomerville.com/software/pycsodata").
+Read the full documentation [here](https://elizasomerville.com/software/pycsodata).
 
 ## Notes
 
