@@ -12,8 +12,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.13"
 
     steps:
     - uses: actions/checkout@v4
@@ -29,4 +34,11 @@ jobs:
         uv sync --all-extras --dev
 
     - name: Run tests
-      run: uv run pytest
+      run: uv run pytest --cov --cov-branch --cov-report=xml
+
+    - name: Upload results to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true

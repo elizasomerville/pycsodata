@@ -1,5 +1,11 @@
 # pycsodata
 
+[![PyPI - Version](https://img.shields.io/pypi/v/pycsodata)](https://pypi.org/project/pycsodata/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pycsodata?logo=python&logoColor=ffffff)](https://pypi.org/project/pycsodata/)
+[![PyPI - License](https://img.shields.io/pypi/l/pycsodata)](https://github.com/elizasomerville/pycsodata/blob/main/LICENSE)
+[![Static Badge](https://img.shields.io/badge/GitHub-pycsodata-blue?logo=github)](https://github.com/elizasomerville/pycsodata)
+[![Codecov](https://img.shields.io/codecov/c/github/elizasomerville/pycsodata?logo=codecov)]((https://codecov.io/gh/elizasomerville/pycsodata))
+
 pycsodata is an unofficial Python package for reading datasets published by the [Central Statistics Office of Ireland](https://cso.ie), using the [PxStat](https://github.com/CSOIreland/PxStat) RESTful API. Much of its functionality is based on the CSO's existing [csodata](https://github.com/CSOIreland/csodata) R package, while also including automatic merging of datasets with spatial data where available.
 
 Read the full documentation [here](https://elizasomerville.com/software/pycsodata).
