@@ -29,6 +29,10 @@ jobs:
           - os: windows-latest
             python-version: "3.13"
 
+    env:
+      USERPROFILE: ${{ github.workspace }}
+      PYTHONUTF8: "1"
+
     steps:
     - uses: actions/checkout@v4
 
