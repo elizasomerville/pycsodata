@@ -26,6 +26,8 @@ from pycsodata._types import (
 )
 from pycsodata.constants import (
     ID_COLUMN_SUFFIX,
+    MET_EIREANN_SPATIAL_KEY,
+    MET_EIREANN_TABLE_PREFIX,
     NATIONAL_AREA_CODE,
     NATIONAL_AREA_LABELS,
 )
@@ -43,7 +45,8 @@ from pycsodata.sanitise import (
     sanitise_list,
     sanitise_string,
 )
-from pycsodata.spatial import create_geodataframe
+from pycsodata.spatial import create_geodataframe, create_met_geodataframe
+from pycsodata.ungeneralised import create_ungeneralised_geodataframe
 
 
 class CSODataset:
@@ -119,9 +122,19 @@ class CSODataset:
         # Load metadata (eagerly, to fail fast on invalid table codes)
         self._raw_metadata = load_metadata(table_code, cache=cache)
 
+        # Detect Met Eireann meteorological datasets (MTM01-MTM08)
+        self._is_met_dataset = self.table_code.startswith(MET_EIREANN_TABLE_PREFIX)
+
         # Extract spatial info (sanitise key if enabled)
         self._spatial_info = extract_spatial_info(self._raw_metadata)
-        if self._sanitise and self._spatial_info.key:
+        if self._is_met_dataset and not self._spatial_info.is_available:
+            # Met Éireann datasets lack API spatial data; use built-in
+            # weather station coordinates instead
+            met_key = MET_EIREANN_SPATIAL_KEY
+            if self._sanitise:
+                met_key = sanitise_string(met_key)
+            self._spatial_info = SpatialInfo(url=None, key=met_key)
+        elif self._sanitise and self._spatial_info.key:
             sanitised_key = sanitise_string(self._spatial_info.key)
             self._spatial_info = SpatialInfo(
                 url=self._spatial_info.url,
@@ -137,6 +150,7 @@ class CSODataset:
         self._cached_base_df: pd.DataFrame | None = None
         self._cached_df: pd.DataFrame | None = None
         self._cached_gdf: gpd.GeoDataFrame | None = None
+        self._cached_gdf_ungeneralised: gpd.GeoDataFrame | None = None
 
     # =========================================================================
     # Properties
@@ -189,11 +203,16 @@ class CSODataset:
     def has_spatial_data(self) -> bool:
         """Check if this dataset has spatial data available.
 
+        Returns True for datasets with linked geographic boundary data
+        from the CSO API, and also for Met Eireann meteorological
+        datasets (MTM01-MTM08) which use built-in weather station
+        coordinates.
+
         Returns:
-            True if the dataset has linked geographic boundary data,
+            True if the dataset has spatial data available,
             False otherwise.
         """
-        return self._spatial_info.is_available
+        return self._spatial_info.is_available or self._is_met_dataset
 
     # =========================================================================
     # Public Methods
@@ -237,7 +256,12 @@ class CSODataset:
         return self._cached_df.copy() if copy else self._cached_df
 
     def gdf(
-        self, pivot_format: str | PivotFormat = "long", *, copy: bool = True
+        self,
+        pivot_format: str | PivotFormat = "long",
+        *,
+        ungeneralised: bool = False,
+        force_reload_geometries: bool = False,
+        copy: bool = True,
     ) -> gpd.GeoDataFrame:
         """Get the dataset as a GeoDataFrame with spatial data.
 
@@ -249,6 +273,15 @@ class CSODataset:
         Args:
             pivot_format (str): The output format for the data.
                 Options: "long" (default), "wide", "tidy".
+            ungeneralised: Whether to use ungeneralised (full-detail) geometries.
+                - ``False``: Use the standard generalised geometries from
+                  the CSO API (default behaviour).
+                - ``True``: Use ungeneralised (full-detail) geometries from
+                  Tailte Éireann ArcGIS Feature Services.
+                  Downloaded geometries are cached to disk.
+            force_reload_geometries: If True, re-download ungeneralised
+                geometry files even if cached copies exist on disk.
+                Only has effect when ``ungeneralised=True``.
             copy: Whether to return a copy of the cached GeoDataFrame.
                 Defaults to True to prevent accidental mutation of cached data.
                 Set to False for better performance if you won't modify the result.
@@ -259,39 +292,77 @@ class CSODataset:
                 geometries.
 
         Raises:
-            SpatialError: If spatial data is not available or merge fails.
-            ValidationError: If an invalid pivot format is provided.
+            SpatialError: If spatial data is not available, ungeneralised
+                geometry is not available for this dataset, or merge fails.
+            ValidationError: If an invalid pivot format or ungeneralised
+                value is provided.
+            ImportError: If ungeneralised=True and the ``arcgis`` package is
+                not installed.
 
         Examples:
             >>> gdf = dataset.gdf()
             >>> gdf.plot(column="value")
-            >>> # Check for null geometries
-            >>> gdf[gdf.geometry.isna()]
+            >>> # Use ungeneralised geometries
+            >>> gdf_detailed = dataset.gdf(ungeneralised=True)
+            >>> # Force re-download of cached geometry
+            >>> gdf_fresh = dataset.gdf(ungeneralised=True, force_reload_geometries=True)
         """
+        # Validate ungeneralised
+        if not isinstance(ungeneralised, bool):
+            raise ValidationError(
+                f"Invalid ungeneralised value: {ungeneralised!r}. "
+                f"Valid options are: True (use ungeneralised geometries) "
+                f"or False (use standard CSO geometries).",
+                parameter="ungeneralised",
+                value=ungeneralised,
+            )
+
         fmt = self._normalise_pivot_format(pivot_format)
 
-        if not self._spatial_info.is_available:
+        if not self.has_spatial_data:
             raise SpatialError(
                 f"Spatial data is not available for dataset '{self.table_code}'. "
                 "This dataset does not have linked geographic boundaries.",
                 table_code=self.table_code,
             )
 
-        if self._cached_gdf is None:
-            self._cached_gdf = self._build_gdf()
+        # Met Éireann datasets don't support ungeneralised geometry
+        if ungeneralised and self._is_met_dataset:
+            raise SpatialError(
+                "Ungeneralised geometry is not available for Met Éireann "
+                "meteorological datasets. These use weather station point "
+                "coordinates which have no generalised/ungeneralised "
+                "distinction. Use gdf() with ungeneralised=False instead.",
+                table_code=self.table_code,
+            )
+
+        # Select the appropriate cache and builder
+        if ungeneralised:
+            if force_reload_geometries:
+                self._cached_gdf_ungeneralised = None
+            if self._cached_gdf_ungeneralised is None:
+                self._cached_gdf_ungeneralised = self._build_gdf(
+                    ungeneralised=True,
+                    force_reload=force_reload_geometries,
+                )
+            cached_gdf = self._cached_gdf_ungeneralised
+        else:
+            if self._cached_gdf is None:
+                self._cached_gdf = self._build_gdf()
+            cached_gdf = self._cached_gdf
 
         if fmt == PivotFormat.LONG:
-            return self._cached_gdf.copy() if copy else self._cached_gdf
+            return cached_gdf.copy() if copy else cached_gdf
 
         if fmt == PivotFormat.WIDE:
-            result = self._gdf_pivot_wide(self._cached_gdf)
+            result = self._gdf_pivot_wide(cached_gdf)
             return result.copy() if copy else result
 
         if fmt == PivotFormat.TIDY:
-            result = self._gdf_pivot_tidy(self._cached_gdf)
+            result = self._gdf_pivot_tidy(cached_gdf)
             return result.copy() if copy else result
 
-        return self._cached_gdf.copy() if copy else self._cached_gdf
+        return cached_gdf.copy() if copy else cached_gdf
 
     def describe(self) -> None:
         """Print a summary of the dataset metadata.
@@ -309,7 +380,7 @@ class CSODataset:
 
     def __repr__(self) -> str:
         """Return a string representation of the dataset."""
-        spatial = "yes" if self._spatial_info.is_available else "no"
+        spatial = "yes" if self.has_spatial_data else "no"
 
         return f"<CSODataset(table_code='{self.table_code}', spatial={spatial})>"
 
@@ -475,11 +546,23 @@ class CSODataset:
 
         return self._filter_id_columns(base_df)
 
-    def _build_gdf(self) -> gpd.GeoDataFrame:
+    def _build_gdf(
+        self,
+        *,
+        ungeneralised: bool = False,
+        force_reload: bool = False,
+    ) -> gpd.GeoDataFrame:
         """Build the GeoDataFrame with spatial data.
 
         Merges the statistical data with geographic boundary data
         to create a GeoDataFrame suitable for spatial analysis.
+
+        Args:
+            ungeneralised: If True, use ungeneralised geometry from
+                Tailte Éireann Feature Services instead of default
+                CSO geometries.
+            force_reload: If True, force re-download of ungeneralised
+                geometry files.
 
         Returns:
             A GeoDataFrame with geometry column.
@@ -490,12 +573,26 @@ class CSODataset:
         base_df = self._get_base_df().copy()
 
         # Create GeoDataFrame BEFORE dropping columns, so spatial merge works
-        gdf = create_geodataframe(
-            base_df,
-            self._spatial_info.url,
-            self._spatial_info.key,
-            cache=self._cache_enabled,
-        )
+        if self._is_met_dataset:
+            gdf = create_met_geodataframe(
+                base_df,
+                self._spatial_info.key,
+            )
+        elif ungeneralised:
+            gdf = create_ungeneralised_geodataframe(
+                base_df,
+                self._spatial_info.url,
+                self._spatial_info.key,
+                cache=self._cache_enabled,
+                force_reload=force_reload,
+            )
+        else:
+            gdf = create_geodataframe(
+                base_df,
+                self._spatial_info.url,
+                self._spatial_info.key,
+                cache=self._cache_enabled,
+            )
 
         if gdf is None or not isinstance(gdf, gpd.GeoDataFrame):
             raise SpatialError(

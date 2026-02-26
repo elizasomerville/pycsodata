@@ -4,7 +4,7 @@
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pycsodata?logo=python&logoColor=ffffff)](https://pypi.org/project/pycsodata/)
 [![PyPI - License](https://img.shields.io/pypi/l/pycsodata)](https://github.com/elizasomerville/pycsodata/blob/main/LICENSE)
 [![Static Badge](https://img.shields.io/badge/GitHub-pycsodata-blue?logo=github)](https://github.com/elizasomerville/pycsodata)
-[![Codecov](https://img.shields.io/codecov/c/github/elizasomerville/pycsodata?logo=codecov)]((https://codecov.io/gh/elizasomerville/pycsodata))
+[![Codecov](https://img.shields.io/codecov/c/github/elizasomerville/pycsodata?logo=codecov)](https://codecov.io/gh/elizasomerville/pycsodata)
 
 pycsodata is an unofficial Python package for reading datasets published by the [Central Statistics Office of Ireland](https://cso.ie), using the [PxStat](https://github.com/CSOIreland/PxStat) RESTful API. Much of its functionality is based on the CSO's existing [csodata](https://github.com/CSOIreland/csodata) R package, while also including automatic merging of datasets with spatial data where available.
 
@@ -37,7 +37,7 @@ ds.describe()
 <details>
 <summary>View output</summary>
 
-```
+```bash
 Code:                FY051A
 Title:               Average Age of Population
 
@@ -71,16 +71,18 @@ Contact Email:       census@cso.ie
 Contact Phone:       (+353) 1 895 1460
 Copyright:           Central Statistics Office, Ireland (https://www.cso.ie/)
 ```
+
 </details>
 
 This may conveniently be loaded into a pandas [DataFrame](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html) by calling `.df()`:
+
 ``` python
 # Load the data into a DataFrame
 df = ds.df()
 print(df.head())
 ```
 
-```
+```bash
                    Statistic CensusYear         Sex Admin Counties  value
 0  Average Age of Population       2022  Both sexes        Ireland   38.8
 1  Average Age of Population       2022  Both sexes         Carlow   38.8
@@ -90,6 +92,7 @@ print(df.head())
 ```
 
 The data can also be conveniently filtered on any of its dimensions. This is done by passing `filters`, a dictionary mapping each dimension to a list containing a subset of values:
+
 ``` python
 # Filter the data by year and sex
 ds = CSODataset("FY051A", filters={"CensusYear":["2022"], "Sex":["Female"]})
@@ -97,7 +100,7 @@ df = ds.df()
 print(df.head())
 ```
 
-```
+```bash
                    Statistic CensusYear     Sex Admin Counties  value
 0  Average Age of Population       2022  Female        Ireland   39.4
 1  Average Age of Population       2022  Female         Carlow   39.3
@@ -107,6 +110,7 @@ print(df.head())
 ```
 
 One may similarly create a geopandas [GeoDataFrame](https://geopandas.org/en/stable/docs/reference/api/geopandas.GeoDataFrame.html) by calling `.gdf()`, making it easy to plot the data on a map:
+
 ``` python
 import matplotlib.pyplot as plt
 
@@ -152,9 +156,11 @@ toc.head()
 | MTM05  | Precipitation Amount                                          | ['Month', 'Meteorological Weather Station']                 | Month           | 1960 January - 2025 December | 2026-01-23 | Met Eireann                        | False         |
 | MTM08  | Wind, Maximum Gale Gust                                       | ['Month', 'Meteorological Weather Station']                 | Month           | 1960 January - 2025 December | 2026-01-23 | Met Eireann                        | False         |
 | MTM06  | Temperature                                                   | ['Month', 'Meteorological Weather Station']                 | Month           | 1960 January - 2025 December | 2026-01-23 | Met Eireann                        | False         |
+
 </details>
 
 It is also possible to search the catalogue on any of its fields, several of which support AND, OR and NOT logic operations:
+
 ```python
 # Search the catalogue by its various fields
 results = cat.search(title="population", variables="electoral division")
@@ -171,10 +177,13 @@ results.head()
 | IPEADS14 | Average Age and Population                                           | ['Year', 'Electoral Divisions']                                                       | Year            |         2023 | 2025-06-24 | Central Statistics Office, Ireland | False         |
 | HCA14    | Tenements of One Room, Area, Houses Inhabited and Population in 1911 | ['Census Year', 'County, Urban/Rural District and District Electoral Division']       | Census Year     |         1911 | 2025-06-06 | Central Statistics Office, Ireland | False         |
 | HCA17    | Tenements of One Room, Area, Houses Inhabited and Population in 1911 | ['Census Year', 'District Electoral Division']                                        | Census Year     |         1911 | 2025-06-06 | Central Statistics Office, Ireland | False         |
+
 </details>
 
 ### Managing the cache
+
 Data is cached by default. The cache may be flushed as follows:
+
 ``` python
 from pycsodata import CSOCache
 
@@ -188,11 +197,12 @@ Read the full documentation [here](https://elizasomerville.com/software/pycsodat
 
 ## Notes
 
--   By default, the PxStat API metadata links CSO datasets to generalised versions of the spatial GeoJSON files rather than to files containing the most precise ungeneralised geometries. This reduces the size of downloads, and the generalised geometries should be adequate for most purposes (such as creating visualisations). In cases where more detailed spatial analysis is required, the ungeneralised spatial data can be downloaded from [GeoHive](https://geohive.ie).
--   There are a few CSO datasets which clearly have a spatial dimension (such as county, area of residence, or similar), but whose metadata does not include a link to a spatial data file. In these cases pycsodata will not be able to produce a GeoDataFrame and will raise an error when `.gdf()` is called. In most such cases the (generalised or ungeneralised) spatial data can be downloaded from GeoHive and manually merged with the DataFrame produced by pycsodata.
+- By default, the PxStat API metadata links CSO datasets to generalised versions of the spatial GeoJSON files rather than to files containing the most precise ungeneralised geometries. This reduces the size of downloads, and the generalised geometries should be adequate for most purposes (such as creating visualisations). In cases where more detailed spatial analysis is required, the ungeneralised spatial data can be downloaded from Tailte Éireann using `.gdf(ungeneralised=True)`.
+- There are a few CSO datasets which clearly have a spatial dimension (such as county, area of residence, or similar), but whose metadata does not include a link to a spatial data file. In these cases pycsodata will not be able to produce a GeoDataFrame and will raise an error when `.gdf()` is called. In most such cases the (generalised or ungeneralised) spatial data can be downloaded from GeoHive and manually merged with the DataFrame produced by pycsodata.
 - The default coordinate reference system (CRS) of the spatial data is the World Geodetic System (EPSG:4326). This should be reprojected to a geographic CRS such as Irish Transverse Mercator (EPSG:2157) before doing any distance or area calculations. For a geopandas GeoDataFrame, this is achieved by calling `gdf.to_crs(epsg=2157)`.
 
 ## Code Provenance and AI Disclosure
-The initial implementation of this package was written by the [author](https://github.com/elizasomerville) (as was 100% of this README). AI assistance from Claude Opus 4.5, Claude Sonnet 4.5, and GPT-5.2 was used for refactoring, adding additional functions for caching, searching and sanitising, creating unit tests, and writing comprehensive docstrings. All code was manually reviewed and tested by the author.
 
-Much of the functionality of pycsodata is based on the CSO's official [csodata](https://github.com/CSOIreland/csodata) R package. It acts as a Python wrapper for accessing the CSO's [PxStat](https://github.com/CSOIreland/PxStat) RESTful API.
+The initial implementation of this package was written by the [author](https://github.com/elizasomerville) (as was 100% of this README). AI assistance from Claude Opus 4.5/4.6, Claude Sonnet 4.5/4.6, and GPT-5.2 was used for refactoring, adding additional functions for caching, searching and sanitising, creating unit tests, and writing comprehensive docstrings. All code was manually reviewed and tested by the author.
+
+Much of the functionality of pycsodata is based on the CSO's official [csodata](https://github.com/CSOIreland/csodata) R package. It acts as a Python wrapper for accessing the CSO's [PxStat](https://github.com/CSOIreland/PxStat) RESTful API, and makes use of the [pyjstat](https://github.com/predicador37/pyjstat) library.

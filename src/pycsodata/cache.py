@@ -14,6 +14,7 @@ Examples:
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 
 from pycsodata import fetchers as _fetchers
@@ -112,6 +113,7 @@ class CSOCache:
             >>> cache.flush()  # Clear all cached data
             >>> # Now all API calls will fetch fresh data
         """
+        print("Flushing HTTP response cache.", file=sys.stderr)
         _fetchers.flush_cache()
 
     def __repr__(self) -> str:

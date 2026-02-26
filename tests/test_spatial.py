@@ -6,10 +6,17 @@ import geopandas as gpd
 import pandas as pd
 import pytest
 from shapely.geometry import Point
+from shapely.geometry.base import BaseGeometry
 
-from pycsodata.constants import DEFAULT_CRS
+from pycsodata.constants import DEFAULT_CRS, MET_EIREANN_SPATIAL_KEY
 from pycsodata.exceptions import SpatialError
-from pycsodata.spatial import _detect_crs, _merge_dataframes, create_geodataframe
+from pycsodata.spatial import (
+    _build_weather_stations_gdf,
+    _detect_crs,
+    _merge_dataframes,
+    create_geodataframe,
+    create_met_geodataframe,
+)
 
 
 class TestDetectCRS:
@@ -267,3 +274,210 @@ class TestCreateGeoDataFrameEdgeCases:
 
                 with pytest.raises(SpatialError, match="Spatial merge failed"):
                     create_geodataframe(df, "http://example.com/geo.json", "County")
+
+
+class TestBuildWeatherStationsGdf:
+    """Tests for _build_weather_stations_gdf function."""
+
+    def test_returns_geodataframe(self):
+        """Test that function returns a GeoDataFrame."""
+        result = _build_weather_stations_gdf()
+        assert isinstance(result, gpd.GeoDataFrame)
+
+    def test_has_station_id_column(self):
+        """Test that result has station_id column."""
+        result = _build_weather_stations_gdf()
+        assert "station_id" in result.columns
+
+    def test_has_geometry_column(self):
+        """Test that result has geometry column."""
+        result = _build_weather_stations_gdf()
+        assert "geometry" in result.columns
+
+    def test_has_point_geometries(self):
+        """Test that all geometries are Points."""
+        result = _build_weather_stations_gdf()
+        assert all(geom.geom_type == "Point" for geom in result.geometry)
+
+    def test_crs_is_wgs84(self):
+        """Test that CRS is WGS84 (EPSG:4326)."""
+        result = _build_weather_stations_gdf()
+        assert result.crs is not None
+        assert str(result.crs) == DEFAULT_CRS
+
+    def test_has_expected_stations(self):
+        """Test that result contains expected weather stations."""
+        result = _build_weather_stations_gdf()
+        station_names = set(result["station_id"])
+        assert "Dublin Airport" in station_names
+        assert "Cork Airport" in station_names
+        assert "Shannon Airport" in station_names
+        assert "Valentia Observatory" in station_names
+
+    def test_no_extra_columns(self):
+        """Test that result only has station_id and geometry columns."""
+        result = _build_weather_stations_gdf()
+        assert set(result.columns) == {"station_id", "geometry"}
+
+    def test_no_null_geometries(self):
+        """Test that no station has a null geometry."""
+        result = _build_weather_stations_gdf()
+        assert not result.geometry.isna().any()
+
+    def test_coordinates_in_ireland_bounds(self):
+        """Test that all station coordinates fall within Ireland."""
+        result = _build_weather_stations_gdf()
+        for _, row in result.iterrows():
+            lon = row.geometry.x
+            lat = row.geometry.y
+            assert 51.0 <= lat <= 56.0, f"Latitude {lat} out of range for {row['station_id']}"
+            assert -11.0 <= lon <= -5.0, f"Longitude {lon} out of range for {row['station_id']}"
+
+
+class TestCreateMetGeoDataFrame:
+    """Tests for the create_met_geodataframe function."""
+
+    def test_returns_geodataframe(self):
+        """Test that function returns a GeoDataFrame."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport", "Cork Airport"],
+                "value": [10.5, 12.3],
+            }
+        )
+        result = create_met_geodataframe(df)
+        assert isinstance(result, gpd.GeoDataFrame)
+
+    def test_has_geometry_column(self):
+        """Test that result has geometry column."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport", "Cork Airport"],
+                "value": [10.5, 12.3],
+            }
+        )
+        result = create_met_geodataframe(df)
+        assert "geometry" in result.columns
+
+    def test_crs_is_wgs84(self):
+        """Test that CRS is WGS84 (EPSG:4326)."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport"],
+                "value": [10.5],
+            }
+        )
+        result = create_met_geodataframe(df)
+        assert result.crs is not None
+        assert str(result.crs) == DEFAULT_CRS
+
+    def test_preserves_all_rows(self):
+        """Test that left join preserves all input rows."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport", "Cork Airport", "Unknown Station"],
+                "value": [10.5, 12.3, 8.0],
+            }
+        )
+        result = create_met_geodataframe(df)
+        assert len(result) == 3
+
+    def test_unmatched_stations_have_null_geometry(self):
+        """Test that unmatched stations get null geometry."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport", "NonExistent Station"],
+                "value": [10.5, 8.0],
+            }
+        )
+        result = create_met_geodataframe(df)
+        non_existent = result[result[MET_EIREANN_SPATIAL_KEY] == "NonExistent Station"]
+        assert non_existent.geometry.isna().all()
+
+    def test_matched_stations_have_valid_geometry(self):
+        """Test that matched stations have valid point geometry."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport"],
+                "value": [10.5],
+            }
+        )
+        result = create_met_geodataframe(df)
+        assert not result.geometry.isna().any()
+        assert (result.geometry.geom_type == "Point").all()
+
+    def test_preserves_original_columns(self):
+        """Test that all original DataFrame columns are preserved."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport"],
+                "Statistic": ["Mean Temperature"],
+                "Month": ["January"],
+                "value": [5.0],
+            }
+        )
+        result = create_met_geodataframe(df)
+        for col in df.columns:
+            if col != "Meteorological Weather Station_titlecased":
+                assert col in result.columns
+
+    def test_no_station_id_column_in_result(self):
+        """Test that the merge key 'station_id' is dropped from result."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport"],
+                "value": [10.5],
+            }
+        )
+        result = create_met_geodataframe(df)
+        assert "station_id" not in result.columns
+
+    def test_many_to_one_merge(self):
+        """Test that multiple rows per station are handled correctly."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport", "Dublin Airport", "Cork Airport"],
+                "Month": ["Jan", "Feb", "Jan"],
+                "value": [5.0, 6.0, 7.0],
+            }
+        )
+        result = create_met_geodataframe(df)
+        assert len(result) == 3
+        dublin_rows = result[result[MET_EIREANN_SPATIAL_KEY] == "Dublin Airport"]
+        assert len(dublin_rows) == 2
+        # Both Dublin rows should have the same geometry
+        geom0 = dublin_rows.geometry.iloc[0]
+        geom1 = dublin_rows.geometry.iloc[1]
+        assert isinstance(geom0, BaseGeometry)
+        assert isinstance(geom1, BaseGeometry)
+        assert geom0.equals(geom1)
+
+    def test_raises_when_spatial_key_missing(self):
+        """Test that SpatialError is raised when spatial key column is missing."""
+        df = pd.DataFrame({"Other Column": ["A"], "value": [1]})
+        with pytest.raises(SpatialError, match="not found in DataFrame"):
+            create_met_geodataframe(df)
+
+    def test_custom_spatial_key(self):
+        """Test that a custom spatial key can be used."""
+        df = pd.DataFrame(
+            {
+                "Station": ["Dublin Airport"],
+                "value": [10.5],
+            }
+        )
+        result = create_met_geodataframe(df, spatial_key="Station")
+        assert isinstance(result, gpd.GeoDataFrame)
+        assert not result.geometry.isna().any()
+
+    def test_default_spatial_key(self):
+        """Test that default spatial key is MET_EIREANN_SPATIAL_KEY."""
+        df = pd.DataFrame(
+            {
+                MET_EIREANN_SPATIAL_KEY: ["Dublin Airport"],
+                "value": [10.5],
+            }
+        )
+        # Should work without explicitly passing spatial_key
+        result = create_met_geodataframe(df)
+        assert isinstance(result, gpd.GeoDataFrame)

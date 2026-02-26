@@ -167,7 +167,10 @@ class TestMetadataPrinter:
         captured = capsys.readouterr()
         assert "Copyright:" in captured.out
         assert "Central Statistics Office" in captured.out
-        assert "https://www.cso.ie" in captured.out
+        # Parse the URL from the output and check it is correct
+        url_start = captured.out.find("http")
+        url_end = captured.out.find(")", url_start)
+        assert captured.out[url_start:url_end] == "https://www.cso.ie"
 
     def test_drop_filtered_cols_removes_variables(self, capsys):
         """Test that filtered variables are removed when drop_filtered_cols is True."""

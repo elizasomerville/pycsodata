@@ -5,6 +5,7 @@ CSO statistical datasets to create GeoDataFrames.
 
 Public Functions:
     create_geodataframe: Merge a DataFrame with spatial boundaries.
+    create_met_geodataframe: Merge a DataFrame with weather station coordinates.
 
 Examples:
     >>> from pycsodata import CSODataset
@@ -15,20 +16,20 @@ Examples:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import io
+from typing import Any
 
 import geopandas as gpd
+import pandas as pd
 
 from pycsodata.constants import (
     DEFAULT_CRS,
     ID_COLUMN_SUFFIX,
+    MET_EIREANN_SPATIAL_KEY,
+    WEATHER_STATIONS,
 )
 from pycsodata.exceptions import SpatialError
 from pycsodata.fetchers import fetch_json
-
-if TYPE_CHECKING:
-    import pandas as pd
-
 
 # =============================================================================
 # Public API
@@ -99,6 +100,94 @@ def create_geodataframe(
 
     except (KeyError, ValueError) as e:
         raise SpatialError(f"Error creating GeoDataFrame: {e}") from e
+
+
+def create_met_geodataframe(
+    df: pd.DataFrame,
+    spatial_key: str | None = None,
+) -> gpd.GeoDataFrame:
+    """Create a GeoDataFrame by merging a DataFrame with weather station coordinates.
+
+    Met Eireann-derived datasets (table codes MTM01-MTM08) do not include
+    spatial boundary data in the PxStat API. This function manually geocodes
+    such datasets by merging with built-in weather station coordinates.
+
+    The merge uses a left join, so all rows from the input DataFrame are
+    preserved. Rows that do not match a known weather station will have
+    null geometries.
+
+    Args:
+        df: The DataFrame to merge with weather station data. Must contain
+            a column matching spatial_key (typically
+            "Meteorological Weather Station").
+        spatial_key: The column name for the spatial join key. Defaults to
+            the standard Met Éireann spatial key if not specified.
+
+    Returns:
+        A GeoDataFrame with point geometry for each weather station,
+        using WGS84 (EPSG:4326) coordinate reference system.
+
+    Raises:
+        SpatialError: If the spatial key column is not found in the DataFrame,
+            or if the merge produces no geometry column.
+    """
+    if spatial_key is None:
+        spatial_key = MET_EIREANN_SPATIAL_KEY
+
+    if spatial_key not in df.columns:
+        raise SpatialError(
+            f"Column '{spatial_key}' not found in DataFrame. Available columns: {list(df.columns)}"
+        )
+
+    stations_gdf = _build_weather_stations_gdf()
+
+    try:
+        # Merge on spatial_key and station_id both titlecased to match typical dataset values
+        df[f"{spatial_key}_titlecased"] = df[spatial_key].str.strip().str.title()
+
+        merged = df.merge(
+            stations_gdf[["station_id", "geometry"]],
+            left_on=f"{spatial_key}_titlecased",
+            right_on="station_id",
+            how="left",
+            validate="many_to_one",
+        ).drop(columns=["station_id", f"{spatial_key}_titlecased"])
+
+        if "geometry" not in merged.columns:
+            raise SpatialError(
+                "Merged DataFrame has no geometry column after weather station merge."
+            )
+
+        return gpd.GeoDataFrame(merged, geometry="geometry", crs=DEFAULT_CRS)
+
+    except SpatialError:
+        raise
+    except Exception as e:
+        raise SpatialError(f"Error during weather station spatial merge: {e}") from e
+
+
+def _build_weather_stations_gdf() -> gpd.GeoDataFrame:
+    """Build a GeoDataFrame of weather station point geometries.
+
+    Parses the built-in WEATHER_STATIONS CSV data and creates a
+    GeoDataFrame with point geometries from latitude/longitude values.
+    Station names are stored in Title Case to match CSO dataset values.
+
+    Returns:
+        A GeoDataFrame with columns 'station_id' and 'geometry',
+        using WGS84 CRS.
+    """
+    stations_df = pd.read_csv(io.StringIO(WEATHER_STATIONS.strip()))
+    stations_df["station_id"] = stations_df["station_id"].str.strip()
+
+    return gpd.GeoDataFrame(
+        stations_df[["station_id"]],
+        geometry=gpd.points_from_xy(
+            stations_df["Longitude"].astype(float),
+            stations_df["Latitude"].astype(float),
+        ),
+        crs=DEFAULT_CRS,
+    )
 
 
 # =============================================================================
