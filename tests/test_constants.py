@@ -7,11 +7,14 @@ from pycsodata.constants import (
     DEFAULT_RETRIES,
     DEFAULT_TIMEOUT,
     ID_COLUMN_SUFFIX,
+    MET_EIREANN_SPATIAL_KEY,
+    MET_EIREANN_TABLE_PREFIX,
     MISENCODED_CHARACTER_MAP,
     NATIONAL_AREA_CODE,
     NATIONAL_AREA_LABELS,
     ROI_GEOMETRY_URL,
     STATISTIC_LABELS,
+    WEATHER_STATIONS,
 )
 
 
@@ -103,3 +106,71 @@ class TestMisencodedCharacterMap:
         """Test that map values are single characters."""
         for value in MISENCODED_CHARACTER_MAP.values():
             assert len(value) == 1
+
+
+class TestMetEireannConstants:
+    """Tests for Met Éireann weather station constants."""
+
+    def test_met_eireann_table_prefix(self):
+        """Test that Met Éireann table prefix is correct."""
+        assert MET_EIREANN_TABLE_PREFIX == "MT"
+
+    def test_met_eireann_spatial_key(self):
+        """Test that Met Éireann spatial key is correct."""
+        assert MET_EIREANN_SPATIAL_KEY == "Meteorological Weather Station"
+
+    def test_weather_stations_is_nonempty_string(self):
+        """Test that weather stations data is a non-empty string."""
+        assert isinstance(WEATHER_STATIONS, str)
+        assert len(WEATHER_STATIONS.strip()) > 0
+
+    def test_weather_stations_has_header(self):
+        """Test that weather stations CSV has expected header."""
+        lines = WEATHER_STATIONS.strip().splitlines()
+        header = lines[0].strip()
+        assert "station_id" in header
+        assert "Latitude" in header
+        assert "Longitude" in header
+        assert "Elevation" in header
+
+    def test_weather_stations_has_data_rows(self):
+        """Test that weather stations CSV has data rows."""
+        lines = WEATHER_STATIONS.strip().splitlines()
+        # Header + at least one data row
+        assert len(lines) > 1
+
+    def test_weather_stations_row_format(self):
+        """Test that each weather station row has 4 comma-separated fields."""
+        lines = WEATHER_STATIONS.strip().splitlines()
+        for line in lines[1:]:  # Skip header
+            fields = line.strip().split(",")
+            assert len(fields) == 4, f"Expected 4 fields, got {len(fields)}: {line}"
+
+    def test_weather_stations_names_in_title_case(self):
+        """Test that weather station names are in Title Case."""
+        lines = WEATHER_STATIONS.strip().splitlines()
+        for line in lines[1:]:
+            name = line.strip().split(",")[0]
+            assert name == name.strip()
+            assert name[0].isupper(), f"Station name not Title Case: {name}"
+
+    def test_weather_stations_valid_coordinates(self):
+        """Test that weather station coordinates are valid for Ireland."""
+        lines = WEATHER_STATIONS.strip().splitlines()
+        for line in lines[1:]:
+            fields = line.strip().split(",")
+            lat = float(fields[1])
+            lon = float(fields[2])
+            # Ireland approximate bounding box
+            assert 51.0 <= lat <= 56.0, f"Latitude {lat} out of range for {fields[0]}"
+            assert -11.0 <= lon <= -5.0, f"Longitude {lon} out of range for {fields[0]}"
+
+    def test_weather_stations_known_stations_present(self):
+        """Test that well-known weather stations are present."""
+        station_names = set()
+        lines = WEATHER_STATIONS.strip().splitlines()
+        for line in lines[1:]:
+            station_names.add(line.strip().split(",")[0])
+
+        expected = {"Dublin Airport", "Cork Airport", "Shannon Airport", "Valentia Observatory"}
+        assert expected.issubset(station_names)

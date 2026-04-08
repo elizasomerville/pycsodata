@@ -426,7 +426,10 @@ class TestProcessNotes:
         notes = ["See [url=http://example.com]this link[/url] for details"]
         result = _process_notes(notes)
         assert "this link" in result[0]
-        assert "http://example.com" in result[0]
+        # Parse the URL from the note and check it is correct
+        url_start = result[0].find("http")
+        url_end = result[0].find(".com", url_start) + 4
+        assert result[0][url_start:url_end] == "http://example.com"
 
     def test_skips_empty_notes(self):
         """Test that empty notes are skipped."""

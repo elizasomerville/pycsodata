@@ -119,3 +119,37 @@ SANITISATION_DICT: dict[str, str] = {
     "Settlements": "Settlement",
     "Small Areas": "Small Area",
 }
+
+# =============================================================================
+# Met Éireann Weather Station Data
+# =============================================================================
+
+# Table code prefix for Met Eireann-derived meteorological datasets
+MET_EIREANN_TABLE_PREFIX: str = "MT"
+
+# The column name used for weather stations in Met Éireann datasets
+MET_EIREANN_SPATIAL_KEY: str = "Meteorological Weather Station"
+
+# Weather station coordinates. The PxStat API does not include spatial data
+# for Met Éireann-derived datasets, so we manually geocode to the corresponding
+# weather stations. Not all stations listed here appear in every dataset.
+# Renamed Mace Head to Galway to match the station name used in the datasets
+WEATHER_STATIONS: str = """station_id,Latitude,Longitude,Elevation
+Belmullet,54.2,-10.0,9
+Birr,53.1,-7.9,72
+Casement,53.3,-6.4,91
+Claremorris,53.7,-9.0,68
+Clones,54.2,-7.2,89
+Cork Airport,51.8,-8.5,155
+Dublin Airport,53.4,-6.2,71
+Galway,53.3,-9.9,21
+Kilkenny,52.7,-7.3,65
+Malin Head,55.4,-7.3,20
+Markree,54.2,-8.5,34
+Mullingar,53.5,-7.4,101
+Phoenix Park,53.4,-6.3,48
+Roches Point,51.8,-8.2,40
+Rosslare,52.2,-6.3,26
+Shannon Airport,52.7,-8.9,15
+Valentia Observatory,51.9,-10.2,24
+"""

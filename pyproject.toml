@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycsodata"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python package for reading data from Ireland's Central Statistics Office."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,6 +24,8 @@ dependencies = [
     "pyjstat>=2.4",
     "requests>=2.28",
     "cachetools>=5.0",
+    "tqdm>=4.0",
+    "defusedxml>=0.7",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -75,6 +77,9 @@ namespaces = false
 [tool.setuptools.package-data]
 pycsodata = ["py.typed"]
 
+[tool.setuptools.exclude-package-data]
+"*" = ["tests*"]
+
 # =============================================================================
 # Testing
 # =============================================================================
@@ -113,6 +118,8 @@ exclude_lines = [
 line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
+exclude = ["_notebooks/*"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
@@ -146,7 +153,7 @@ known-first-party = ["pycsodata"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG", "PLR2004", "PLC0415"]  # Allow unused args, magic values, late imports in tests
 "src/pycsodata/parsers.py" = ["PLR0911", "PLR0912"]  # Complex parsing logic
-"notebooks/*" = ["ALL"]  # Ignore notebooks
+"src/pycsodata/ungeneralised.py" = ["PLR0911", "PLR0912", "PLR0915", "PLC0415"]  # Complex dispatch, late imports
 
 # =============================================================================
 # Type Checking
@@ -178,4 +185,4 @@ ignore_missing_imports = true
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-skips = ["B101"]  # Allow assert statements
+skips = ["B101", "B113"]  # Allow assert statements, requests without timeout

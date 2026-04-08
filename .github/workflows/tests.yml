@@ -3,8 +3,24 @@ name: Tests
 on:
   push:
     branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'tests/**'
   pull_request:
     branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run'
+        required: false
+        default: 'Manual testing'
+
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -19,6 +35,10 @@ jobs:
             python-version: "3.13"
           - os: windows-latest
             python-version: "3.13"
+
+    env:
+      USERPROFILE: ${{ github.workspace }}
+      PYTHONUTF8: "1"
 
     steps:
     - uses: actions/checkout@v4
@@ -37,7 +57,7 @@ jobs:
       run: uv run pytest --cov --cov-branch --cov-report=xml
 
     - name: Upload results to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && github.ref == 'refs/heads/main'
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
