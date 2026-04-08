@@ -52,8 +52,8 @@ class TestMappingData:
     """Tests for the embedded mapping data from CSOtoTailte.csv."""
 
     def test_simple_mappings_count(self):
-        """Test that we have 28 simple mappings."""
-        assert len(_SIMPLE_MAPPINGS) == 28
+        """Test that we have 29 simple mappings."""
+        assert len(_SIMPLE_MAPPINGS) == 29
 
     def test_complex_mappings_count(self):
         """Test that we have 7 complex mappings."""
@@ -64,8 +64,8 @@ class TestMappingData:
         assert len(_UNAVAILABLE_FILECODES) == 7
 
     def test_total_known_filecodes(self):
-        """Test that all filecodes sum to 42."""
-        assert len(_ALL_KNOWN_FILECODES) == 42
+        """Test that all filecodes sum to 43."""
+        assert len(_ALL_KNOWN_FILECODES) == 43
 
     def test_no_overlap_between_categories(self):
         """Test that no filecode appears in multiple categories."""
@@ -687,8 +687,24 @@ def _make_mock_session(
         if isinstance(params, dict) and params.get("returnCountOnly") == "true":
             # Feature count request
             resp.json.return_value = {"count": len(feature_properties)}
+        elif isinstance(params, dict) and params.get("returnIdsOnly") == "true":
+            # Object ID request
+            resp.json.return_value = {
+                "objectIdFieldName": "OBJECTID",
+                "objectIds": list(range(len(feature_properties))),
+            }
         elif "/query" in url:
             # Feature page request - build GeoJSON features
+            if "objectIds" in params:
+                raw_ids = str(params.get("objectIds", ""))
+                object_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
+                page_data = [(idx, feature_properties[idx]) for idx in object_ids]
+            else:
+                offset = int(params.get("resultOffset", 0))
+                page_size = int(params.get("resultRecordCount", len(feature_properties)))
+                page_props = feature_properties[offset : offset + page_size]
+                page_data = list(enumerate(page_props, start=offset))
+
             features = [
                 {
                     "type": "Feature",
@@ -698,7 +714,7 @@ def _make_mock_session(
                     },
                     "properties": props,
                 }
-                for i, props in enumerate(feature_properties)
+                for i, props in page_data
             ]
             body = json.dumps(
                 {
@@ -809,6 +825,51 @@ class TestDownloadFeatureService:
             assert isinstance(result, gpd.GeoDataFrame)
             # Should have called the mock session (not loaded from cache)
             mock_session.get.assert_called()
+
+    def test_skips_progress_bar_for_single_page(self, tmp_path):
+        """Test that tqdm is not used when only one page is required."""
+        mock_session = _make_mock_session([{"GUID": "a"}, {"GUID": "b"}], max_record_count=1000)
+
+        with (
+            patch("pycsodata.ungeneralised._create_session", return_value=mock_session),
+            patch("pycsodata.ungeneralised._get_cache_dir", return_value=tmp_path),
+            patch("pycsodata.ungeneralised._cache_feature_service_metadata"),
+            patch("pycsodata.ungeneralised._update_readme"),
+            patch("pycsodata.ungeneralised.tqdm") as mock_tqdm,
+        ):
+            from pycsodata.ungeneralised import _download_feature_service
+
+            _download_feature_service("https://example.com/FeatureServer/0", out_fields="GUID")
+
+        mock_tqdm.assert_not_called()
+
+    def test_uses_page_progress_bar_for_multi_page(self, tmp_path):
+        """Test that tqdm tracks one update per completed page."""
+        mock_session = _make_mock_session(
+            [{"GUID": "a"}, {"GUID": "b"}, {"GUID": "c"}],
+            max_record_count=2,
+        )
+        mock_pbar = MagicMock()
+        mock_cm = MagicMock()
+        mock_cm.__enter__.return_value = mock_pbar
+        mock_cm.__exit__.return_value = False
+
+        with (
+            patch("pycsodata.ungeneralised._create_session", return_value=mock_session),
+            patch("pycsodata.ungeneralised._get_cache_dir", return_value=tmp_path),
+            patch("pycsodata.ungeneralised._cache_feature_service_metadata"),
+            patch("pycsodata.ungeneralised._update_readme"),
+            patch("pycsodata.ungeneralised.tqdm", return_value=mock_cm) as mock_tqdm,
+        ):
+            from pycsodata.ungeneralised import _download_feature_service
+
+            _download_feature_service("https://example.com/FeatureServer/0", out_fields="GUID")
+
+        mock_tqdm.assert_called_once()
+        kwargs = mock_tqdm.call_args.kwargs
+        assert kwargs["total"] == 2
+        assert kwargs["unit"] == "page"
+        assert mock_pbar.update.call_count == 2
 
 
 class TestDownloadNIGeoJSON:

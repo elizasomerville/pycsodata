@@ -880,24 +880,47 @@ class TestCSODatasetGdfEdgeCases:
                 state_rows = gdf_wide[gdf_wide[spatial_key] == "State"]
                 assert state_rows.geometry.isna().all()
 
-    @pytest.mark.network
     def test_gdf_df_have_same_row_count_tidy_format(self):
-        """Test that gdf and df have same row count in tidy format."""
-        flush_cache()
-        dataset = CSODataset("NDQ09", include_ids="all")
+        """Test tidy pivot keeps gdf/df row counts aligned and null geometry rows."""
+        from shapely.geometry import Point
 
-        if dataset.has_spatial_data:
-            df_tidy = dataset.df("tidy")
-            gdf_tidy = dataset.gdf("tidy")
+        spatial_key = "Local Electoral Area"
+        spatial_id_key = f"{spatial_key} ID"
+        dataset = _make_offline_dataset(
+            spatial_key=spatial_key,
+            include_ids=IncludeIDs.ALL,
+        )
 
-            assert len(gdf_tidy) == len(df_tidy)
+        # Small synthetic dataset that mirrors an aggregate "State" row
+        # without needing slow network calls or large boundary downloads.
+        df_long = pd.DataFrame(
+            {
+                spatial_key: ["Dublin North", "State", "Dublin North", "State"],
+                spatial_id_key: ["IE0701", "IE0", "IE0701", "IE0"],
+                "Statistic": ["Population", "Population", "Vacancy Rate", "Vacancy Rate"],
+                "value": [1200.0, 5000000.0, 4.2, 5.1],
+            }
+        )
 
-            # Verify aggregate regions with null geometry are preserved
-            spatial_key = dataset.spatial_info.key
-            if "State" in df_tidy[spatial_key].values:
-                assert "State" in gdf_tidy[spatial_key].values
-                state_rows = gdf_tidy[gdf_tidy[spatial_key] == "State"]
-                assert state_rows.geometry.isna().all()
+        gdf_long = gpd.GeoDataFrame(
+            df_long.copy(),
+            geometry=[
+                Point(-6.3, 53.4),
+                Point(-8.0, 53.3),
+                Point(-6.3, 53.4),
+                Point(-8.0, 53.3),
+            ],
+            crs="EPSG:4326",
+        )
+        gdf_long.loc[gdf_long[spatial_key] == "State", "geometry"] = None
+
+        df_tidy = dataset._pivot_tidy(df_long)
+        gdf_tidy = dataset._gdf_pivot_tidy(gdf_long)
+
+        assert len(gdf_tidy) == len(df_tidy)
+        assert "State" in gdf_tidy[spatial_key].values
+        state_rows = gdf_tidy[gdf_tidy[spatial_key] == "State"]
+        assert state_rows.geometry.isna().all()
 
 
 class TestCSODatasetDropNationalEdgeCases:
@@ -1208,39 +1231,39 @@ class TestCSODatasetFilterColumnDrop:
 
 
 class TestCSODatasetMetEireann:
-    """Tests for Met Eireann meteorological dataset support (MTM01-MTM08)."""
+    """Tests for Met Eireann meteorological dataset support (MT)."""
 
     @pytest.mark.network
     def test_mtm_has_spatial_data(self):
-        """Test that MTM datasets report spatial data as available."""
+        """Test that MT datasets report spatial data as available."""
         flush_cache()
         dataset = CSODataset("MTM01")
         assert dataset.has_spatial_data is True
 
     @pytest.mark.network
     def test_mtm_is_met_dataset_flag(self):
-        """Test that MTM datasets have _is_met_dataset set to True."""
+        """Test that MT datasets have _is_met_dataset set to True."""
         flush_cache()
         dataset = CSODataset("MTM01")
         assert dataset._is_met_dataset is True
 
     @pytest.mark.network
     def test_non_mtm_is_not_met_dataset(self):
-        """Test that non-MTM datasets do not have _is_met_dataset set."""
+        """Test that non-MT datasets do not have _is_met_dataset set."""
         flush_cache()
         dataset = CSODataset("FY003A")
         assert dataset._is_met_dataset is False
 
     @pytest.mark.network
     def test_mtm_spatial_key(self):
-        """Test that MTM datasets use the correct spatial key."""
+        """Test that MT datasets use the correct spatial key."""
         flush_cache()
         dataset = CSODataset("MTM01")
         assert dataset.spatial_info.key == "Meteorological Weather Station"
 
     @pytest.mark.network
     def test_mtm_spatial_key_sanitised(self):
-        """Test that MTM spatial key is sanitised when sanitise=True."""
+        """Test that MT spatial key is sanitised when sanitise=True."""
         flush_cache()
         dataset = CSODataset("MTM01", sanitise=True)
         # Sanitisation shouldn't change this particular key, but it should be applied
@@ -1248,7 +1271,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_df_returns_dataframe(self):
-        """Test that MTM dataset df() returns a DataFrame."""
+        """Test that MT dataset df() returns a DataFrame."""
         flush_cache()
         dataset = CSODataset("MTM01")
         df = dataset.df()
@@ -1257,7 +1280,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_gdf_returns_geodataframe(self):
-        """Test that MTM dataset gdf() returns a GeoDataFrame."""
+        """Test that MT dataset gdf() returns a GeoDataFrame."""
         flush_cache()
         dataset = CSODataset("MTM01")
         gdf = dataset.gdf()
@@ -1266,7 +1289,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_gdf_has_crs(self):
-        """Test that MTM GeoDataFrame has CRS set to EPSG:4326."""
+        """Test that MT GeoDataFrame has CRS set to EPSG:4326."""
         flush_cache()
         dataset = CSODataset("MTM01")
         gdf = dataset.gdf()
@@ -1275,7 +1298,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_gdf_has_point_geometry(self):
-        """Test that MTM GeoDataFrame has Point geometries."""
+        """Test that MT GeoDataFrame has Point geometries."""
         flush_cache()
         dataset = CSODataset("MTM01")
         gdf = dataset.gdf()
@@ -1285,7 +1308,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_gdf_df_same_row_count(self):
-        """Test that gdf and df have the same number of rows for MTM datasets."""
+        """Test that gdf and df have the same number of rows for MT datasets."""
         flush_cache()
         dataset = CSODataset("MTM01")
         df = dataset.df()
@@ -1312,7 +1335,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_gdf_wide_format(self):
-        """Test that MTM GeoDataFrame works with wide pivot format."""
+        """Test that MT GeoDataFrame works with wide pivot format."""
         flush_cache()
         dataset = CSODataset("MTM01", filters={"Statistic": dataset_first_stat("MTM01")})
         gdf = dataset.gdf("wide")
@@ -1321,7 +1344,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_gdf_tidy_format(self):
-        """Test that MTM GeoDataFrame works with tidy pivot format."""
+        """Test that MT GeoDataFrame works with tidy pivot format."""
         flush_cache()
         dataset = CSODataset("MTM01")
         df = dataset.df()
@@ -1335,14 +1358,14 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_repr_shows_spatial(self):
-        """Test that MTM dataset repr shows spatial=yes."""
+        """Test that MT dataset repr shows spatial=yes."""
         flush_cache()
         dataset = CSODataset("MTM01")
         assert "spatial=yes" in repr(dataset)
 
     @pytest.mark.network
     def test_mtm_with_include_ids(self):
-        """Test that include_ids works with MTM datasets."""
+        """Test that include_ids works with MT datasets."""
         flush_cache()
         dataset = CSODataset("MTM01", include_ids="all")
         gdf = dataset.gdf()
@@ -1350,7 +1373,7 @@ class TestCSODatasetMetEireann:
 
     @pytest.mark.network
     def test_mtm_with_drop_filtered_cols(self):
-        """Test that drop_filtered_cols works with MTM gdf."""
+        """Test that drop_filtered_cols works with MT gdf."""
         flush_cache()
         dataset = CSODataset(
             "MTM01",
@@ -1821,6 +1844,24 @@ class TestPivotTidyDuplicateDetection:
 
         with pytest.raises(ValidationError, match="Cannot pivot to tidy format: 'Statistic'"):
             dataset._pivot_tidy(df)
+
+    def test_all_nan_statistic_column_is_preserved(self):
+        """Test that tidy pivot keeps statistic columns that are entirely NaN."""
+        dataset = _make_offline_dataset()
+
+        df = pd.DataFrame(
+            {
+                "County": ["Dublin", "Dublin", "Cork", "Cork"],
+                "Statistic": ["Population", "Percentage", "Population", "Percentage"],
+                "value": [100.0, None, 200.0, None],
+            }
+        )
+
+        result = dataset._pivot_tidy(df)
+
+        assert "Population" in result.columns
+        assert "Percentage" in result.columns
+        assert result["Percentage"].isna().all()
 
 
 # =============================================================================

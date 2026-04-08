@@ -108,7 +108,7 @@ def create_met_geodataframe(
 ) -> gpd.GeoDataFrame:
     """Create a GeoDataFrame by merging a DataFrame with weather station coordinates.
 
-    Met Eireann-derived datasets (table codes MTM01-MTM08) do not include
+    Met Eireann-derived datasets (table codes MT) do not include
     spatial boundary data in the PxStat API. This function manually geocodes
     such datasets by merging with built-in weather station coordinates.
 

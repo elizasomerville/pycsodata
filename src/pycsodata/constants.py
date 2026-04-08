@@ -124,8 +124,8 @@ SANITISATION_DICT: dict[str, str] = {
 # Met Éireann Weather Station Data
 # =============================================================================
 
-# Table code prefix for Met Eireann-derived meteorological datasets (MTM01-MTM08)
-MET_EIREANN_TABLE_PREFIX: str = "MTM"
+# Table code prefix for Met Eireann-derived meteorological datasets
+MET_EIREANN_TABLE_PREFIX: str = "MT"
 
 # The column name used for weather stations in Met Éireann datasets
 MET_EIREANN_SPATIAL_KEY: str = "Meteorological Weather Station"

@@ -122,7 +122,7 @@ class CSODataset:
         # Load metadata (eagerly, to fail fast on invalid table codes)
         self._raw_metadata = load_metadata(table_code, cache=cache)
 
-        # Detect Met Eireann meteorological datasets (MTM01-MTM08)
+        # Detect Met Eireann meteorological datasets (MT)
         self._is_met_dataset = self.table_code.startswith(MET_EIREANN_TABLE_PREFIX)
 
         # Extract spatial info (sanitise key if enabled)
@@ -205,7 +205,7 @@ class CSODataset:
 
         Returns True for datasets with linked geographic boundary data
         from the CSO API, and also for Met Eireann meteorological
-        datasets (MTM01-MTM08) which use built-in weather station
+        datasets (starting "MT") which use built-in weather station
         coordinates.
 
         Returns:
@@ -1034,6 +1034,7 @@ class CSODataset:
             columns=time_var,
             values="value",
             aggfunc="first",  # type: ignore
+            dropna=False,
             sort=False,
         ).reset_index()
 
@@ -1106,6 +1107,7 @@ class CSODataset:
             columns="Statistic",
             values="value",
             aggfunc="first",  # type: ignore
+            dropna=False,
             sort=False,
         ).reset_index()
 
@@ -1140,16 +1142,27 @@ class CSODataset:
         spatial_key = self._spatial_info.key
         spatial_id_col = f"{spatial_key}{ID_COLUMN_SUFFIX}" if spatial_key else None
 
-        # Extract geometry mapping before pivoting to avoid losing rows with null geometry
-        # The spatial ID column is more reliable for joining if available
-        if spatial_id_col and spatial_id_col in gdf.columns:
+        # Extract geometry mapping before pivoting to avoid losing rows with null geometry.
+        # If both label and ID are available, use both to prevent mismatched
+        # label/ID combinations created during pivoting from picking up geometry.
+        if (
+            spatial_key
+            and spatial_key in gdf.columns
+            and spatial_id_col
+            and spatial_id_col in gdf.columns
+        ):
+            geometry_map = gdf[[spatial_key, spatial_id_col, geometry_col]].drop_duplicates(
+                subset=[spatial_key, spatial_id_col]
+            )
+            join_cols: str | list[str] = [spatial_key, spatial_id_col]
+        elif spatial_id_col and spatial_id_col in gdf.columns:
             geometry_map = gdf[[spatial_id_col, geometry_col]].drop_duplicates(
                 subset=[spatial_id_col]
             )
-            join_col = spatial_id_col
+            join_cols = spatial_id_col
         elif spatial_key and spatial_key in gdf.columns:
             geometry_map = gdf[[spatial_key, geometry_col]].drop_duplicates(subset=[spatial_key])
-            join_col = spatial_key
+            join_cols = spatial_key
         else:
             # Fall back to original behavior if no spatial key
             pivoted = self._pivot_wide(gdf)
@@ -1164,7 +1177,7 @@ class CSODataset:
         pivoted = self._pivot_wide(df_no_geom)
 
         # Merge geometry back in
-        pivoted = pivoted.merge(geometry_map, on=join_col, how="left")
+        pivoted = pivoted.merge(geometry_map, on=join_cols, how="left")
 
         # Make geometry column come last
         cols = [col for col in pivoted.columns if col != geometry_col] + [geometry_col]
@@ -1189,16 +1202,27 @@ class CSODataset:
         spatial_key = self._spatial_info.key
         spatial_id_col = f"{spatial_key}{ID_COLUMN_SUFFIX}" if spatial_key else None
 
-        # Extract geometry mapping before pivoting to avoid losing rows with null geometry
-        # The spatial ID column is more reliable for joining if available
-        if spatial_id_col and spatial_id_col in gdf.columns:
+        # Extract geometry mapping before pivoting to avoid losing rows with null geometry.
+        # If both label and ID are available, use both to prevent mismatched
+        # label/ID combinations created during pivoting from picking up geometry.
+        if (
+            spatial_key
+            and spatial_key in gdf.columns
+            and spatial_id_col
+            and spatial_id_col in gdf.columns
+        ):
+            geometry_map = gdf[[spatial_key, spatial_id_col, geometry_col]].drop_duplicates(
+                subset=[spatial_key, spatial_id_col]
+            )
+            join_cols: str | list[str] = [spatial_key, spatial_id_col]
+        elif spatial_id_col and spatial_id_col in gdf.columns:
             geometry_map = gdf[[spatial_id_col, geometry_col]].drop_duplicates(
                 subset=[spatial_id_col]
             )
-            join_col = spatial_id_col
+            join_cols = spatial_id_col
         elif spatial_key and spatial_key in gdf.columns:
             geometry_map = gdf[[spatial_key, geometry_col]].drop_duplicates(subset=[spatial_key])
-            join_col = spatial_key
+            join_cols = spatial_key
         else:
             # Fall back to original behavior if no spatial key
             pivoted = self._pivot_tidy(gdf)
@@ -1213,7 +1237,7 @@ class CSODataset:
         pivoted = self._pivot_tidy(df_no_geom)
 
         # Merge geometry back in
-        pivoted = pivoted.merge(geometry_map, on=join_col, how="left")
+        pivoted = pivoted.merge(geometry_map, on=join_cols, how="left")
 
         # Make geometry column come last
         cols = [col for col in pivoted.columns if col != geometry_col] + [geometry_col]

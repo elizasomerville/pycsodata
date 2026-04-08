@@ -113,7 +113,7 @@ class TestMetEireannConstants:
 
     def test_met_eireann_table_prefix(self):
         """Test that Met Éireann table prefix is correct."""
-        assert MET_EIREANN_TABLE_PREFIX == "MTM"
+        assert MET_EIREANN_TABLE_PREFIX == "MT"
 
     def test_met_eireann_spatial_key(self):
         """Test that Met Éireann spatial key is correct."""

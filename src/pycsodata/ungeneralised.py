@@ -97,6 +97,11 @@ _SIMPLE_MAPPINGS: dict[str, tuple[str, str]] = {
         "https://services-eu1.arcgis.com/FH5XCsx8rYXqnjF5/ArcGIS/rest/services/"
         "Constituency_Boundaries_Ungeneralised_2017/FeatureServer/1",
     ),
+    "2b6b493d675f17c75de3d2a76e69ef34": (
+        "GUID",
+        "https://services-eu1.arcgis.com/FH5XCsx8rYXqnjF5/ArcGIS/rest/services/"
+        "Constituency_Boundaries_Ungeneralised_2017/FeatureServer/1",
+    ),
     "91d1bb9ad7b0af2b8ca4361f944c3f57": (
         "GUID",
         "https://services-eu1.arcgis.com/FH5XCsx8rYXqnjF5/ArcGIS/rest/services/"
@@ -1143,58 +1148,163 @@ def _download_feature_service(
         print(f"  Feature count: {total_count}", file=sys.stderr)
 
         # ------------------------------------------------------------------
-        # 3. Download feature pages with a byte-level progress bar
+        # 3. Download feature pages with page-level progress
         # ------------------------------------------------------------------
-        page_size = max_record_count
+        page_size = max(int(max_record_count or 1000), 1)
         offsets = list(range(0, total_count, page_size))
         n_pages = len(offsets)
+        query_out_fields = "*" if out_fields == "*" else out_fields
 
-        def _fetch_page_bytes(
-            offset: int,
-            pbar: tqdm,  # type: ignore[type-arg]
-        ) -> list[dict[str, Any]]:
-            """Download a single page, streaming bytes for progress."""
+        def _fetch_page(offset: int) -> list[dict[str, Any]]:
+            """Download a single page and return its GeoJSON features."""
             resp = session.get(
                 f"{url}/query",
                 params={
                     "where": "1=1",
-                    "outFields": "*",
+                    "outFields": query_out_fields,
                     "f": "geojson",
                     "resultOffset": str(offset),
                     "resultRecordCount": str(page_size),
                 },
                 timeout=DEFAULT_TIMEOUT * 3,
-                stream=True,
             )
             resp.raise_for_status()
+            payload = resp.json()
+            features = payload.get("features", [])
+            if not isinstance(features, list):
+                raise SpatialError(f"Unexpected page payload from {url}")
+            return features
 
-            # Accumulate chunks while updating the byte-level bar
-            chunks: list[bytes] = []
-            for chunk in resp.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    chunks.append(chunk)
-                    pbar.update(len(chunk))
+        def _fetch_object_id_batch(object_ids: list[int]) -> list[dict[str, Any]]:
+            """Download a batch of features by object IDs."""
+            resp = session.get(
+                f"{url}/query",
+                params={
+                    "objectIds": ",".join(str(object_id) for object_id in object_ids),
+                    "outFields": query_out_fields,
+                    "f": "geojson",
+                },
+                timeout=DEFAULT_TIMEOUT * 3,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+            features = payload.get("features", [])
+            if not isinstance(features, list):
+                raise SpatialError(f"Unexpected object-id payload from {url}")
+            return features
 
-            body = b"".join(chunks)
-            return json.loads(body).get("features", [])
+        def _choose_object_id_batch_size() -> int:
+            """Select object-id batch size by layer size.
 
-        all_features: list[dict[str, Any]] = []
+            Smaller batches are faster for tiny layers with heavy geometries,
+            while medium batches avoid excessive request overhead for larger layers.
+            """
+            if total_count <= 64:
+                return 1
+            if total_count <= 2048:
+                return 25
+            return 100
 
-        with (
-            tqdm(
-                desc=f"Downloading features ({n_pages} page{'s' if n_pages != 1 else ''})",
-                unit="B",
-                unit_scale=True,
-                unit_divisor=1024,
-                leave=True,
-            ) as pbar,
-            concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor,
-        ):
-            futures = {
-                executor.submit(_fetch_page_bytes, offset, pbar): offset for offset in offsets
-            }
-            for future in concurrent.futures.as_completed(futures):
-                all_features.extend(future.result())
+        def _choose_object_id_workers(n_batches: int) -> int:
+            """Select a conservative worker count for object-id sharding."""
+            if total_count > 2048:
+                return min(_MAX_WORKERS + 2, n_batches)
+            return min(_MAX_WORKERS * 2, n_batches)
+
+        def _try_object_id_fetch() -> list[dict[str, Any]] | None:
+            """Try object-id sharding across single- and multi-page layers."""
+            ids_resp = session.get(
+                f"{url}/query",
+                params={"where": "1=1", "returnIdsOnly": "true", "f": "json"},
+                timeout=DEFAULT_TIMEOUT,
+            )
+            ids_resp.raise_for_status()
+            ids_data = ids_resp.json()
+
+            object_ids = ids_data.get("objectIds")
+            if not isinstance(object_ids, list):
+                return None
+            if len(object_ids) != total_count:
+                return None
+
+            batch_size = _choose_object_id_batch_size()
+            batches = [
+                object_ids[i : i + batch_size] for i in range(0, len(object_ids), batch_size)
+            ]
+            max_workers = max(1, _choose_object_id_workers(len(batches)))
+
+            all_features_local: list[dict[str, Any]] = []
+            if n_pages == 1:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = [executor.submit(_fetch_object_id_batch, batch) for batch in batches]
+                    for future in concurrent.futures.as_completed(futures):
+                        all_features_local.extend(future.result())
+                return all_features_local
+
+            # Keep progress in page units for multi-page layers.
+            with (
+                tqdm(
+                    total=n_pages,
+                    desc=f"Downloading features ({n_pages} pages)",
+                    unit="page",
+                    leave=True,
+                ) as pbar,
+                concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor,
+            ):
+                future_to_batch_idx = {
+                    executor.submit(_fetch_object_id_batch, batch): idx
+                    for idx, batch in enumerate(batches)
+                }
+                completed_batches: dict[int, list[dict[str, Any]]] = {}
+                downloaded_count = 0
+                pages_completed = 0
+
+                for future in concurrent.futures.as_completed(future_to_batch_idx):
+                    batch_idx = future_to_batch_idx[future]
+                    batch_features = future.result()
+                    completed_batches[batch_idx] = batch_features
+                    downloaded_count += len(batch_features)
+
+                    target_pages = min(n_pages, downloaded_count // page_size)
+                    if target_pages > pages_completed:
+                        pbar.update(target_pages - pages_completed)
+                        pages_completed = target_pages
+
+                if pages_completed < n_pages:
+                    pbar.update(n_pages - pages_completed)
+
+                for batch_idx in range(len(batches)):
+                    all_features_local.extend(completed_batches.get(batch_idx, []))
+
+            return all_features_local
+
+        object_id_features = _try_object_id_fetch()
+        if object_id_features is not None:
+            all_features = object_id_features
+        elif n_pages == 1:
+            all_features = _fetch_page(offsets[0])
+        else:
+            page_features: dict[int, list[dict[str, Any]]] = {}
+            with (
+                tqdm(
+                    total=n_pages,
+                    desc=f"Downloading features ({n_pages} pages)",
+                    unit="page",
+                    leave=True,
+                ) as pbar,
+                concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(_MAX_WORKERS, n_pages)
+                ) as executor,
+            ):
+                futures = {executor.submit(_fetch_page, offset): offset for offset in offsets}
+                for future in concurrent.futures.as_completed(futures):
+                    offset = futures[future]
+                    page_features[offset] = future.result()
+                    pbar.update(1)
+
+            all_features = []
+            for offset in offsets:
+                all_features.extend(page_features.get(offset, []))
 
         if not all_features:
             raise SpatialError(f"No features returned from {url}")
