@@ -597,9 +597,9 @@ def create_ungeneralised_geodataframe(
         matching spatial boundaries will have null geometries.
 
     Raises:
-        SpatialError: If spatial data is unavailable, the filecode is
-            unrecognised, or the merge fails.
-        ImportError: If the ``arcgis`` package is not installed.
+        SpatialError: If spatial data is unavailable, ungeneralised
+            geometry is not available for the dataset's filecode, the
+            filecode is unrecognised, or the merge fails.
     """
     if not spatial_url or not spatial_key:
         raise SpatialError("Dataset has no spatial information available.")

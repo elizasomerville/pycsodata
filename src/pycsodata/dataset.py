@@ -296,8 +296,6 @@ class CSODataset:
                 geometry is not available for this dataset, or merge fails.
             ValidationError: If an invalid pivot format or ungeneralised
                 value is provided.
-            ImportError: If ungeneralised=True and the ``arcgis`` package is
-                not installed.
 
         Examples:
             >>> gdf = dataset.gdf()

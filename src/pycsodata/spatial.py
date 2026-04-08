@@ -142,16 +142,16 @@ def create_met_geodataframe(
     stations_gdf = _build_weather_stations_gdf()
 
     try:
-        # Merge on spatial_key and station_id both titlecased to match typical dataset values
-        df[f"{spatial_key}_titlecased"] = df[spatial_key].str.strip().str.title()
+        # Merge using a temporary normalized key to avoid mutating the caller's DataFrame
+        normalized_spatial_key = df[spatial_key].str.strip().str.title()
 
         merged = df.merge(
             stations_gdf[["station_id", "geometry"]],
-            left_on=f"{spatial_key}_titlecased",
+            left_on=normalized_spatial_key,
             right_on="station_id",
             how="left",
             validate="many_to_one",
-        ).drop(columns=["station_id", f"{spatial_key}_titlecased"])
+        ).drop(columns=["station_id"])
 
         if "geometry" not in merged.columns:
             raise SpatialError(

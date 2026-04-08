@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlparse
 from unittest.mock import MagicMock, patch
 
 import geopandas as gpd
@@ -132,7 +134,8 @@ class TestCopyrightDefaults:
     def test_default_tailte_licence_is_cc_by_4(self):
         """Test that the default Tailte licence references CC BY 4.0."""
         assert "CC BY 4.0" in _DEFAULT_TAILTE_LICENCE
-        assert "creativecommons.org" in _DEFAULT_TAILTE_LICENCE
+        urls = re.findall(r"https?://\S+", _DEFAULT_TAILTE_LICENCE)
+        assert any(urlparse(u).hostname == "creativecommons.org" for u in urls)
 
     def test_osni_copyright_text(self):
         """Test the OSNI copyright text."""
@@ -141,7 +144,8 @@ class TestCopyrightDefaults:
     def test_osni_licence_is_ogl(self):
         """Test that the OSNI licence references the Open Government Licence."""
         assert "Open Government Licence" in _OSNI_LICENCE
-        assert "nationalarchives.gov.uk" in _OSNI_LICENCE
+        urls = re.findall(r"https?://\S+", _OSNI_LICENCE)
+        assert any(urlparse(u).hostname == "www.nationalarchives.gov.uk" for u in urls)
 
 
 class TestParseXml:
@@ -625,7 +629,8 @@ class TestUpdateReadme:
         assert "pycsodata Ungeneralised Geometry Cache" in content
         assert "Download Log:" in content
         assert "features.gpkg" in content
-        assert "https://example.com" in content
+        urls = re.findall(r"https?://\S+", content)
+        assert any(urlparse(u).hostname == "example.com" for u in urls)
 
     def test_appends_to_existing_readme(self, tmp_path):
         """Test that subsequent writes append to the README."""
