@@ -203,6 +203,6 @@ Read the full documentation [here](https://elizasomerville.com/software/pycsodat
 
 ## Code Provenance and AI Disclosure
 
-The initial implementation of this package was written by the [author](https://github.com/elizasomerville) (as was 100% of this README). AI assistance from Claude Opus 4.5/4.6, Claude Sonnet 4.5/4.6, and GPT-5.2 was used for refactoring, adding additional functions for caching, searching and sanitising, creating unit tests, and writing comprehensive docstrings. All code was manually reviewed and tested by the author.
+The initial implementation of this package was written by the [author](https://github.com/elizasomerville) (as was 100% of this README). AI assistance was used for refactoring, adding additional functions for caching, searching, and sanitising, creating unit tests, and writing comprehensive docstrings. All code was manually reviewed and tested by the author.
 
 Much of the functionality of pycsodata is based on the CSO's official [csodata](https://github.com/CSOIreland/csodata) R package. It acts as a Python wrapper for accessing the CSO's [PxStat](https://github.com/CSOIreland/PxStat) RESTful API, and makes use of the [pyjstat](https://github.com/predicador37/pyjstat) library.
